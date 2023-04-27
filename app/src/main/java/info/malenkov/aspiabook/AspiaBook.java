@@ -1,10 +1,14 @@
 package info.malenkov.aspiabook;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.security.SecureRandom;
@@ -31,19 +35,25 @@ import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import info.malenkov.aspiabook.proto.EncryptionType;
 import info.malenkov.aspiabook.proto.File;
+import info.malenkov.aspiabook.proto.Identify;
+import info.malenkov.aspiabook.proto.ServerHello;
+import info.malenkov.aspiabook.proto.SessionChallenge;
+import info.malenkov.aspiabook.proto.SrpClientKeyExchange;
+import info.malenkov.aspiabook.proto.SrpIdentify;
+import info.malenkov.aspiabook.proto.SrpServerKeyExchange;
+import info.malenkov.aspiabook.proto.ClientHello;
 import info.malenkov.aspiabook.proto.Computer;
 import info.malenkov.aspiabook.proto.ComputerGroup;
 import info.malenkov.aspiabook.proto.Data;
+import info.malenkov.aspiabook.proto.Encryption;
 
 public class AspiaBook {
-
     private final static int abMajorVersion = 1;
-	private final static int abMinorVesion = 0;
+	private final static int abMinorVesion = 1;
 
     private final int THREADS_POOL_SIZE = 20;
-    private final int TIMEOUT = 200;
-    private List<String> aspiaIps = new ArrayList<>();
-
+    private final int TIMEOUT = 500;
+	private final String SPLIT = "<-//->";
     private boolean aabEncrypted = false;
     private String aabPath = null;
     private String aabPathWrite = null;
@@ -53,10 +63,33 @@ public class AspiaBook {
     private String ipNet = null;
     private int aspiaPort = 8050;
     private boolean saveIp = false;
+	private int ipTimeout = TIMEOUT;
+	private String hostUser = "";
+	private String hostPassword = "";
+	private boolean saveCred = false;
 
     private static String abName = "AspiaBook";
 	private static String abCopyright = "(c) Copyright 2023 Maxim V. Malenkov\n\nThird-party component:\n- guava (c) 2009 Google Inc.; Apache-2.0 license\n- protobuf (c) 2008 Google Inc.; BSD 3-Clause License\n- bouncycastle (c) 2000 - 2021 The Legion of the Bouncy Castle Inc; MIT license";
    
+	class HostInfo{
+		String hostIp;
+		String hostName;
+
+		public HostInfo(String ip, String name){
+			hostIp = ip;
+			hostName = name;
+		}
+
+		public String getIp(){
+			return hostIp;
+		}
+
+		public String getName(){
+			return hostName;
+		}
+	}
+
+	private List<HostInfo> foundHosts = new ArrayList<>();
 
     AspiaBook(){
         Security.addProvider(new BouncyCastleProvider());
@@ -83,13 +116,21 @@ public class AspiaBook {
         this.aabPath = aabPath;
     }
 
+	public void setHostUser(String user){
+		hostUser = user;
+	}
+
+	public void setHostPassword(String password){
+		hostPassword = password;
+	}
+
     public void setPathWrite(String aabPathWrite){
         this.aabPathWrite = aabPathWrite;
     }
 
     public void setPassword(String aabPassword){
         this.aabPassword = aabPassword;
-        if(aabPassword != null){
+        if(aabPassword != null && aabPassword != ""){
             aabEncrypted = true;
         }
     }
@@ -108,6 +149,19 @@ public class AspiaBook {
 		}
     }
 
+	public void setTimeout(int timeout){
+		if(timeout < 200) 
+			ipTimeout = 200;
+		else if(timeout > 5000)
+			ipTimeout = 5000;
+		else
+			ipTimeout = timeout;
+	}
+
+	public void saveCredential(boolean cred){
+		saveCred = cred;
+	}
+
 	public void netScan() throws InterruptedException, ExecutionException, UnknownHostException{
 		Date date = new Date();  
 
@@ -118,7 +172,7 @@ public class AspiaBook {
             final List<Future<Boolean>> futures = new ArrayList<>();
         
             for (String ip : allIps) {
-              futures.add(portIsOpen(es, ip, aspiaPort, TIMEOUT));
+              futures.add(portIsOpen(es, ip, aspiaPort, ipTimeout));
             }
             
             es.shutdown();
@@ -129,16 +183,39 @@ public class AspiaBook {
                 }
             }
         
-            System.out.println("\nThere are " + openPorts + " open ports on network " + ipNet + " (probed with a timeout of " + TIMEOUT + "ms)");
+            System.out.println("\nThere are " + openPorts + " open ports on network " + ipNet + " (probed with a timeout of " + ipTimeout + "ms)");
         
             if(openPorts > 0){
                 ComputerGroup computerGroup = ComputerGroup
                     .newBuilder()
                     .build();
-                for (String ip : aspiaIps) {
+
+				for(int inc = 0; inc < foundHosts.size(); inc++) {
+					String tmpName = "";
+					String tmpComment = "";
+					String tmpUser = "";
+					String tmpPassword = "";
+
+					if(saveCred){
+						tmpUser = hostUser;
+						tmpPassword = hostPassword;
+					}
+
+					if(foundHosts.get(inc).getName().indexOf(SPLIT) > 0) {
+						String temp[] = foundHosts.get(inc).getName().split(SPLIT);
+						tmpName = temp[0];
+						tmpComment = temp[1];
+					}else{
+						tmpName = foundHosts.get(inc).getIp();
+						tmpComment = foundHosts.get(inc).getName();
+					}
+
                     Computer computer = Computer.newBuilder()
-                        .setName(ip)
-                        .setAddress(ip)
+						.setUsername(tmpUser)
+						.setPassword(tmpPassword)
+                        .setName(tmpName)
+						.setComment(tmpComment)
+                        .setAddress(foundHosts.get(inc).getIp())
                         .setPort(aspiaPort)
                         .setCreateTime(date.getTime()/1000)
                         .setModifyTime(date.getTime()/1000)
@@ -149,7 +226,9 @@ public class AspiaBook {
                     .mergeRootGroup(computerGroup)
                     .build()
                     .toByteArray();
-            }
+            }else{
+				aabData = null;	
+			}
         }
 	}
 
@@ -186,7 +265,7 @@ public class AspiaBook {
     public boolean save(){
         boolean result = false;
 
-        if(aabPathWrite != null) {
+        if(aabPathWrite != null && aabData != null) {
             try {
                 if(aabEncrypted){
                     byte[] newSalt = newSalt();
@@ -302,15 +381,23 @@ public class AspiaBook {
         return es.submit(new Callable<Boolean>() {
             @Override public Boolean call() {
               try {
-                Socket socket = new Socket();
+				String tmpIp = null;
+				String tmpHost = null;
+
+				Socket socket = new Socket();
                 socket.connect(new InetSocketAddress(ip, port), timeout);
                 socket.close();
+
                 if(saveIp){
-                    aspiaIps.add(ip);
+                    tmpIp = ip;
+					tmpHost = getHostInfo(ip, hostUser, hostPassword);
                 }else{
-                    InetAddress addr = InetAddress.getByName(ip);
-                    aspiaIps.add(addr.getHostName());
+                    tmpIp = getHostName(ip);
+					tmpHost = getHostInfo(ip, hostUser, hostPassword);
                 }
+
+				foundHosts.add(new HostInfo(tmpIp, tmpHost));
+
                 System.out.print("+");
                 return true;
               } catch (Exception ex) {
@@ -320,5 +407,216 @@ public class AspiaBook {
             }
         });
     }
-  
+
+	private String getHostName(String ip){
+		String result = ip;
+
+		InetAddress addr;
+		try {
+			addr = InetAddress.getByName(ip);
+			result = addr.getHostName();
+		} catch (UnknownHostException e) {
+			// Do nothing
+			System.out.println("\n<!>getHostName(" + ip + ") error: " + e);
+		}
+
+		return result;
+	}
+
+	private String getHostInfo(String hostIp, String hostUser, String hostPassword){
+		String result = "<!> Wrong user name or password";
+		Encryption serverEncryption = Encryption.ENCRYPTION_UNKNOWN;
+		SPREngine sprEngine = null;
+		boolean alwaysFine = true;
+		byte[] data = null;
+
+		try{
+			Socket socket = new Socket(hostIp, aspiaPort);
+			socket.setSoTimeout(ipTimeout);
+			BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
+			BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+
+			// ---->>> ClientHello
+			ClientHello clientHello = ClientHello.newBuilder()
+					.setEncryption(Encryption.ENCRYPTION_CHACHA20_POLY1305_VALUE | Encryption.ENCRYPTION_AES256_GCM_VALUE)
+					.setIdentify(Identify.IDENTIFY_SRP)
+					.build();
+			byte[] clientHelloDATA = addSize(clientHello.toByteArray());
+			out.write(clientHelloDATA);
+			out.flush();
+
+			// <<<---- ServerHello
+			if(alwaysFine){
+				data = read(in);
+				if (data.length > 0) {
+					data = skipSize(data);
+					if (var128Decode(data) > 0) {
+						ServerHello serverHello = ServerHello.parseFrom(data);
+						serverEncryption = serverHello.getEncryption();
+					}else{
+						System.out.print("<!> ServerHello protobuf error.");
+						alwaysFine = false;
+					}
+				}else{
+					System.out.print("<!> ServerHello error.");
+					alwaysFine = false;
+				}
+			}
+
+			// ---->>> SrpIdentify
+			if(alwaysFine){
+				SrpIdentify srpIdentify = SrpIdentify.newBuilder().setUsername(hostUser).build();
+				byte[] srpIdentifyDATA = addSize(srpIdentify.toByteArray());
+				out.write(srpIdentifyDATA);
+				out.flush();
+			}
+			
+			// <<<---- SrpServerKeyExchange
+			if(alwaysFine){
+				data = read(in);
+				if (data.length > 0) {
+					if (var128Decode(data) > 0) {
+						data = skipSize(data);
+						SrpServerKeyExchange srpServerKeyExchange = SrpServerKeyExchange.parseFrom(data);
+						sprEngine = new SPREngine(hostUser , hostPassword, 
+							serverEncryption,
+							srpServerKeyExchange.getNumber().toByteArray(), 
+							srpServerKeyExchange.getGenerator().toByteArray(), 
+							srpServerKeyExchange.getSalt().toByteArray(), 
+							srpServerKeyExchange.getB().toByteArray(), 
+							srpServerKeyExchange.getIv().toByteArray());
+					}else{
+						System.out.print("<!> SprServerKeyExchange protobuf error.");
+						alwaysFine = false;
+					}
+				}else{
+					System.out.print("<!> SprServerKeyExchange error.");
+					alwaysFine = false;
+				}
+			}
+
+			// ---->>> SrpClientKeyExchange
+			if(alwaysFine && sprEngine != null){
+				SrpClientKeyExchange srpClientKeyExchange = SrpClientKeyExchange.newBuilder()
+					.setA(ByteString.copyFrom(sprEngine.getA()))
+					.setIv(ByteString.copyFrom(sprEngine.getIV()))
+					.build();
+
+				byte[] srpClientKeyExchangeDATA = addSize(srpClientKeyExchange.toByteArray());
+				out.write(srpClientKeyExchangeDATA);
+				out.flush();
+			}
+			// <<<----- SessionChallenge
+			if(alwaysFine && sprEngine != null){
+				data = read(in);
+				if (data.length > 0) {
+					if (var128Decode(data) > 0) {
+						data = skipSize(data);
+						SessionChallenge sessionChallenge = SessionChallenge.parseFrom(sprEngine.decrypt(data));
+						result = sessionChallenge.getComputerName() + SPLIT + sessionChallenge.getOsName(); 
+					}else{
+						//result = "<!> SessionChallenge protobuf error.";
+						result = result + "\nSessionChallenge protobuf error."; 
+						alwaysFine = false;
+					}
+				}else{
+					// result = "<!> SessionChallenge error.";
+					result = result + "\nSessionChallenge error."; 
+					alwaysFine = false;
+				}
+			}
+			socket.close();
+		} catch (Exception e) {
+			result = result + "\n" + e; 
+		}
+
+		return result;
+	}
+
+	private byte[] addSize(byte[] value) {
+		byte[] newBuffer = null;
+
+		if (value.length > 0) {
+			int var128Size = (int) var128Size(value.length);
+			newBuffer = new byte[value.length + var128Size];
+			System.arraycopy(var128Encode(value.length), 0, newBuffer, 0, var128Size);
+			System.arraycopy(value, 0, newBuffer, var128Size, value.length);
+		}
+
+		return newBuffer;
+	}
+
+	private byte[] skipSize(byte[] value) {
+		byte[] newBuffer = null;
+
+		if (value.length > 0) {
+			int msgLen = (int) var128Decode(value);
+			newBuffer = new byte[msgLen];
+			System.arraycopy(value, var128Size(msgLen), newBuffer, 0, msgLen);
+		}
+
+		return newBuffer;
+	}
+
+	private int var128Size(long x) {
+		int size = 1;
+		while (Long.compareUnsigned(x, 127) > 0) {
+			size++;
+			x >>>= 7;
+		}
+		return size;
+	}
+
+	private byte[] var128Encode(long x) {
+		ByteBuffer bb = ByteBuffer.wrap(new byte[var128Size(x)]);
+
+		while (Long.compareUnsigned(x, 127) > 0) {
+			bb.put((byte) (x & 127 | 128));
+			x >>>= 7;
+		}
+		bb.put((byte) (x & 127));
+
+		return bb.array();
+	}
+
+	private long var128Decode(byte[] buffer) {
+		ByteBuffer bb = ByteBuffer.wrap(buffer);
+
+		long x = 0;
+		int shift = 0;
+		long b;
+		do {
+			b = bb.get() & 0xff;
+			x |= (b & 127) << shift;
+			shift += 7;
+		} while ((b & 128) != 0);
+		return x;
+	}
+
+	private byte[] read(BufferedInputStream in) throws IOException, InterruptedException{
+		int termLength = 0;
+		byte[] buffer = new byte[0];
+		byte[] term = new byte[16384];
+
+		do{		
+			termLength = in.read(term, 0, 16384);
+			buffer = concatenate(buffer, term, termLength);
+			Thread.sleep(100);
+		}while(in.available() > 0);
+
+		return buffer;
+	}
+
+	private byte[] concatenate(byte[] first, byte[] second, int length){
+		byte[] combined = new byte[first.length + length];
+		
+		if(first.length > 0){
+			System.arraycopy(first,0,combined,0,first.length);
+		}
+		if(second.length > 0){
+			System.arraycopy(second,0,combined,first.length,length);
+		}
+		
+		return combined;
+	}
 }

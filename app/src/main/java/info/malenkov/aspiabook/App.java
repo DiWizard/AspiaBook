@@ -10,8 +10,8 @@ public class App {
 	private static final String CLK_BOOK_WRITE = "--addressBookWrite";
 	private static final String CLK_BOOK_WRITE_S = "-w";
 
-	private static final String CLK_PASSWORD = "--bookPassword";
-	private static final String CLK_PASSWORD_S = "-p";
+	private static final String CLK_BOOKPSW = "--bookPassword";
+	private static final String CLK_BOOKPSW_S = "-b";
 
 	private static final String CLK_EXPORT = "--exportJSON";
 	private static final String CLK_EXPORT_S = "-j";
@@ -25,22 +25,38 @@ public class App {
 	private static final String CLK_HELP = "--help";
 	private static final String CLK_HELP_S = "-h";
 
+	private static final String CLK_TIMEOUT = "--timeout";
+	private static final String CLK_TIMEOUT_S = "-t";
+
 	private static final String CLK_VER = "--version";
 	private static final String CLK_VER_S = "-v";
 
 	private static final String CLK_JAVA = "--java";
 	private static final String CLK_JAVA_S = "-j";
 
+	private static final String CLK_HOSTUSER = "--hostUser";
+	private static final String CLK_HOSTUSER_S = "-u";
+	
+	private static final String CLK_HOSTPSW = "--hostPassword";
+	private static final String CLK_HOSTPSW_S = "-p";
+
+	private static final String CLK_SAVECRED = "--saveCredential";
+	private static final String CLK_SAVECRED_S = "-s";
+
 	private static String commandLineKeys[] = {
 		CLK_BOOK, CLK_BOOK_S,
 		CLK_BOOK_WRITE, CLK_BOOK_WRITE_S,
-		CLK_PASSWORD, CLK_PASSWORD_S,
+		CLK_BOOKPSW, CLK_BOOKPSW_S,
 		CLK_EXPORT, CLK_EXPORT_S,
 		CLK_IPNET, CLK_IPNET_S,
 		CLK_HELP, CLK_HELP_S,
 		CLK_SAVEIP, CLK_SAVEIP_S,
 		CLK_VER, CLK_VER_S,
-		CLK_JAVA, CLK_JAVA_S
+		CLK_JAVA, CLK_JAVA_S,
+		CLK_TIMEOUT, CLK_TIMEOUT_S,
+		CLK_HOSTUSER, CLK_HOSTUSER_S,
+		CLK_HOSTPSW, CLK_HOSTPSW_S,
+		CLK_SAVECRED, CLK_SAVECRED_S
 	};
 
 	private static CommandLineParcer commandLineParcer;
@@ -78,14 +94,58 @@ public class App {
 		}else if(commandLineParcer.isKeyExist(CLK_VER_S) || commandLineParcer.isKeyExist(CLK_VER)){
 			aspiaBook.printVersion();
 		}else{
-			if(commandLineParcer.isKeyExist(CLK_PASSWORD_S)){
-				aspiaBook.setPassword(commandLineParcer.getKeyValue(CLK_PASSWORD_S));
-			}else if(commandLineParcer.isKeyExist(CLK_PASSWORD)){
-				aspiaBook.setPassword(commandLineParcer.getKeyValue(CLK_PASSWORD));
+			if(commandLineParcer.isKeyExist(CLK_TIMEOUT_S)){
+				aspiaBook.setTimeout(Integer.parseInt(commandLineParcer.getKeyValue(CLK_TIMEOUT_S)));
+			}
+			if(commandLineParcer.isKeyExist(CLK_TIMEOUT)){
+				aspiaBook.setTimeout(Integer.parseInt(commandLineParcer.getKeyValue(CLK_TIMEOUT)));
+			}
+
+			if(commandLineParcer.isKeyExist(CLK_HOSTUSER_S)){
+				aspiaBook.setHostUser(commandLineParcer.getKeyValue(CLK_HOSTUSER_S));
+			}
+			if(commandLineParcer.isKeyExist(CLK_HOSTUSER)){
+				aspiaBook.setHostUser(commandLineParcer.getKeyValue(CLK_HOSTUSER));
+			}
+
+			if(commandLineParcer.isKeyExist(CLK_HOSTPSW_S)){
+				if(commandLineParcer.getKeyValue(CLK_HOSTPSW_S) == null){
+					System.out.print("Enter Aspia host user password: ");
+					aspiaBook.setHostPassword(inputString());
+				}else{
+					aspiaBook.setHostPassword(commandLineParcer.getKeyValue(CLK_HOSTPSW_S));
+				}
+			}else if(commandLineParcer.isKeyExist(CLK_HOSTPSW)){
+				if(commandLineParcer.getKeyValue(CLK_HOSTPSW) == ""){
+					System.out.print("Enter Aspia host user password: ");
+					aspiaBook.setHostPassword(inputString());
+				}else{
+					aspiaBook.setHostPassword(commandLineParcer.getKeyValue(CLK_HOSTPSW));
+				}
+			}
+
+			if(commandLineParcer.isKeyExist(CLK_BOOKPSW_S)){
+				if(commandLineParcer.getKeyValue(CLK_BOOKPSW_S) == null){
+					System.out.print("Enter phonebook password: ");
+					aspiaBook.setPassword(inputString());
+				}else{
+					aspiaBook.setPassword(commandLineParcer.getKeyValue(CLK_BOOKPSW_S));
+				}
+			}else if(commandLineParcer.isKeyExist(CLK_BOOKPSW)){
+				if(commandLineParcer.getKeyValue(CLK_BOOKPSW) == ""){
+					System.out.print("Enter phonebook password: ");
+					aspiaBook.setPassword(inputString());
+				}else{
+					aspiaBook.setPassword(commandLineParcer.getKeyValue(CLK_BOOKPSW));
+				}
 			}
 
 			if(commandLineParcer.isKeyExist(CLK_SAVEIP_S) || commandLineParcer.isKeyExist(CLK_SAVEIP)){
 				aspiaBook.saveIpOnly(true);
+			}
+
+			if(commandLineParcer.isKeyExist(CLK_SAVECRED_S) || commandLineParcer.isKeyExist(CLK_SAVECRED)){
+				aspiaBook.saveCredential(true);
 			}
 
 			if(commandLineParcer.isKeyExist(CLK_BOOK_S)){
@@ -119,20 +179,23 @@ public class App {
 				aspiaBook.setPathWrite(commandLineParcer.getKeyValue(CLK_BOOK_WRITE));
 				aspiaBook.save();
 			}
-			
 		}
     }
 
 	private static void help(){
-		System.out.println("Usage: AspiaBook [-rwnpxh]");
+		System.out.println("Usage: AspiaBook [-rwnupsibxtvjh]");
 		System.out.println();
 		System.out.println("Arguments: ");
 		System.out.println("  -r=<..>, --addressBookRead=<..>    Aspia address book (*.aab) for read");
 		System.out.println("  -w=<..>, --addressBookWrite=<..>   Aspia address book (*.aab) for write");
 		System.out.println("  -n=<..>, --network=<..>            TCP/IP network [:port] for scan");
+		System.out.println("  -u=<..>, --hostUser=<..>           Aspia host user name");
+		System.out.println("  -p=<..>, --hostPassword=<..>       Aspia host user password");
+		System.out.println("  -s,      --saveCredential          Save user/password to phonebook records");
 		System.out.println("  -i=<..>, --saveIp                  Save pure IP-address instead a hostname");		
-		System.out.println("  -p=<..>, --bookPassword=<..>       Password for Aspia adress book");
+		System.out.println("  -b=<..>, --bookPassword=<..>       Password for Aspia adress book");
 		System.out.println("  -x=<..>, --export=<..>             Export address book to JSON-файл");
+		System.out.println("  -t=<..>, --timeout=<..>            Timeout in milliseconds (min: 200, max 5000)");
 		System.out.println("  -v,      --version                 print AspiaBook version");		
 		System.out.println("  -j,      --java                    print Java version");		
 		System.out.println("  -h,      --help                    this help");		
@@ -219,5 +282,8 @@ public class App {
 		System.out.println("");
 	}
 
+	private static String inputString(){
+		return System.console().readLine();
+	}
 
 }
