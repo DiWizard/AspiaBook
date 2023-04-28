@@ -14,7 +14,7 @@ Arguments:
   -u=<..>, --hostUser=<..>           Aspia host user name
   -p=<..>, --hostPassword=<..>       Aspia host user password
   -s,      --saveCredential          Save user/password to phonebook records
-  -i=<..>, --saveIp                  Save pure IP-address instead a hostname
+  -i,      --saveIp                  Save pure IP-address instead a hostname
   -b=<..>, --bookPassword=<..>       Password for Aspia adress book
   -x=<..>, --export=<..>             Export address book to JSON-файл
   -t=<..>, --timeout=<..>            Timeout in milliseconds (min: 200, max 5000)
